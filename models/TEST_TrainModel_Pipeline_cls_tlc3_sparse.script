@@ -1,0 +1,132 @@
+﻿//Script GUID:ecd83686-8506-40c3-bc1c-85566fe24fca
+//Used for tracking history
+
+//  shares/CML.TLC/TLC/TLC_3.6.65.0/
+
+ 
+#DECLARE model_type string = "FT";  // LR
+
+ 
+
+#IF(@model_type == "FT")
+    #DECLARE out_tag string =  "_FT_L300_T300_" ; 
+    #DECLARE   trainerArguments string =  "tr=FastTreeBinaryClassification {lr=0.05 nl=300 mil=50 iter=300 } "; //ff=0.7
+#ELSEIF(@model_type=="LR")
+    #DECLARE out_tag string =  "_LR_" ; 
+    #DECLARE   trainerArguments string =  "tr=lr{optTol=1e-5}  ";  // -5
+#ELSEIF(@model_type=="XG") 
+    #DECLARE out_tag string =  "_XG_" ; 
+    #DECLARE   trainerArguments string =  "tr=XGBoostBinary {iter=50}";
+#ELSEIF(@model_type=="GBM")
+    #DECLARE out_tag string =  "_GBM_" ; 
+    #DECLARE   trainerArguments string =  "tr=LightGBMBinary {iter=300 lr=0.05 nl=300 mil=50} ";    
+#ELSEIF(@model_type=="SVM")
+    #DECLARE out_tag string =  "_SVM_" ;
+    #DECLARE   trainerArguments string =  "tr=LinearSVM{lambda=0.0001539926 iter=300 initwts=1}";
+#ENDIF
+
+
+#DECLARE TrainIn string =    "local/users/v-lianji/camera_ready/train-val-online/overfitting/train02_overfitting_highdim_big5.svmlight.csv"	;  
+    
+#DECLARE ModelOut string = "local/users/v-lianji/camera_ready/train-val-online/overfitting/FT_p50_big5_haslatlng.zip";
+
+#DECLARE NPartitions int = 50;  //35
+ 
+
+//// for cosmos09 TLC3.7
+#IF(EXISTS("local/users/v-lianji/TLC3.7/Tlc3Scope.module"))
+MODULE "local/users/v-lianji/TLC3.7/Tlc3Scope.module" AS Tlc3Learner;
+RESOURCE @"local/users/v-lianji/TLC3.7/Microsoft.MachineLearning.Garage.dll";
+#ELSE
+ /// cosmos14
+MODULE "/shares/CML.TLC/TLC/TLC-3.7.162.86/Tlc3Scope.module" AS Tlc3Learner;
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/Microsoft.MachineLearning.Garage.dll";
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/libxgboost.dll";
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/Microsoft.MachineLearning.XGBoost.dll";
+#ENDIF
+
+
+trainData =
+    EXTRACT Line : string
+    FROM @TrainIn
+    USING DefaultTextExtractor("-d", "\n");
+
+////////////////////////////////// 
+//////////trainData02 =
+//////////    EXTRACT Line : string
+//////////    FROM @"my/RecSys2017/pipeline/offline/train02_highdim_nouid.svmlight.csv"
+//////////    USING DefaultTextExtractor("-d", "\n");
+//////////
+//////////
+//////////trainData =
+//////////    SELECT *
+//////////    FROM trainData
+//////////    UNION ALL
+//////////    SELECT *
+//////////    FROM trainData02;
+/////////////////////////////
+////////// 
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+//predicted_data =
+//    EXTRACT id : string,
+//            label : int,
+//            score : float,
+//            prob : float
+//    FROM "local/users/v-lianji/camera_ready/train-val-online/LR_2_stage/train02_highdim.pred.tsv"
+//    USING DefaultTextExtractor(delimiter: '\t');
+//predicted_data =
+//    SELECT id
+//    FROM predicted_data
+//    WHERE label == 1 OR prob >= 0.05
+//    GROUP BY id;
+//
+//trainData =
+//    SELECT Line,
+//           Line.Substring(Line.IndexOf("#") + 1) AS id
+//    FROM trainData;
+//trainData =
+//    SELECT a.Line
+//    FROM trainData AS a
+//         INNER JOIN
+//             predicted_data AS b
+//         ON a.id == b.id;
+
+
+ //////////////////////////////////////////////////////////////////////////////////////
+
+//// shuffle training data
+trainData =
+    SELECT MyHelper.GetUserIdFromLast(Line) AS uid, //MyHelper.GetRandomInt(10000) AS uid,  //
+           Line
+    FROM trainData;
+
+trainData =
+    REDUCE trainData
+    ON uid
+    USING ShuffleLinesReducer();  
+/// end of shuffle training data
+ 
+models = Tlc3Learner.Train
+         (
+             TrainingData = trainData,
+             numberOfDataPartitions = @NPartitions,
+  
+             loaderArguments = "group={} loader=SvmLightLoader{size=28000} ",   //28000  98000  5400
+  
+             transforms =  
+             
+             "skipCheck=+ ",
+  
+             trainerArguments =  @trainerArguments 
+  
+             ,combinerArguments = "c=ParallelEnsemble{oc=Median} "
+         );
+ 
+ 
+ 
+ // Output the combined model.
+OUTPUT models.TrainedModel
+TO @ModelOut
+USING TlcModelOutputter;

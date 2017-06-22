@@ -1,0 +1,116 @@
+﻿
+
+
+
+//// for cosmos09 TLC3.7
+#IF(EXISTS("local/users/v-lianji/TLC3.7/Tlc3Scope.module"))
+MODULE "local/users/v-lianji/TLC3.7/Tlc3Scope.module" AS Tlc3Learner;
+RESOURCE @"local/users/v-lianji/TLC3.7/Microsoft.MachineLearning.Garage.dll";
+#ELSE
+ /// cosmos14
+MODULE "/shares/CML.TLC/TLC/TLC-3.7.162.86/Tlc3Scope.module" AS Tlc3Learner;
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/Microsoft.MachineLearning.Garage.dll";
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/libxgboost.dll";
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/Microsoft.MachineLearning.XGBoost.dll";
+#ENDIF
+
+
+
+#DECLARE path string = "local/users/v-lianji/camera_ready/train-val-online/overfitting/";
+
+
+
+#DECLARE ModelString string = @path + "FT_p50_haslatlng.zip"; // 
+RESOURCE @ModelString;
+ 
+#DECLARE TestDataFile string =  @path+ "test_complete_0_overfitting_highdim.svmlight.csv";
+#DECLARE ValidDataFile string =  @path+ "valid02_overfitting_highdim.svmlight.csv";
+
+#DECLARE out_submit_file_v0 string = @path+"results/FT_submit"+".csv";
+#DECLARE out_submit_file string = @path+"results/FT_test_submit_top1.csv";   
+#DECLARE PredOut string = @path+"results/FT_test.predictions.tsv";
+#DECLARE PredOut_valid string = @path+"results/FT_valid.predictions.tsv";
+#DECLARE MetricsOut string = @path+"results/FT_valid.metrics.ss";
+
+
+data =
+    EXTRACT Line : string
+    FROM @ValidDataFile
+    USING DefaultTextExtractor("-d", "\n"); 
+scoredTest =
+    PROCESS data
+   PRODUCE  
+            Comment,
+Label,
+Score,
+            Probability
+    USING TlcScoringProcessor("loader+", "in=FT_p50_haslatlng.zip");  //useLoader=+
+    
+OUTPUT
+TO @PredOut_valid
+USING DefaultTextOutputter(); 
+ 
+metrics =
+    REDUCE scoredTest ALL
+    USING TlcEvaluatingReducer(
+        // The binary evaluator is being used, 
+        // and the score and probability columns are specified.
+        "eval=bin{prob=Probability score=Score}",
+        // The label column.
+        "lab=Label");
+OUTPUT metrics
+TO SSTREAM @MetricsOut ;
+
+
+
+
+data =
+    EXTRACT Line : string
+    FROM @TestDataFile
+    USING DefaultTextExtractor("-d", "\n");
+ 
+ 
+scoredTest =
+    PROCESS data
+   PRODUCE  
+            Comment,
+Label,
+Score,
+            Probability
+    USING TlcScoringProcessor("loader+", "in=FT_p50_haslatlng.zip");  //useLoader=+
+    
+OUTPUT
+TO @PredOut
+USING DefaultTextOutputter(); 
+
+
+
+preds = SELECT MyHelper.GetUserId(Comment) AS uid,
+               MyHelper.GetItemId(Comment) AS iid,
+               Probability 
+    FROM scoredTest;
+
+
+
+REDUCE preds
+ON iid
+USING SubmissionFormater();
+  
+OUTPUT
+TO  @out_submit_file_v0
+USING DefaultTextOutputter(delimiter: '\t');
+ 
+// 
+//////// since each user can receive at most one recommendation
+tpreds =
+    REDUCE preds
+    ON iid
+    USING TopKSelector();
+
+REDUCE tpreds
+ON holder
+USING OnlineSubmissionFormater(); 
+ 
+OUTPUT
+TO  @out_submit_file
+USING DefaultTextOutputter(delimiter: '\t');

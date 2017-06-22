@@ -1,0 +1,1446 @@
+﻿//Script GUID:96a29cf4-257c-4f79-8002-bd532ab765cc
+//Used for tracking history
+
+#DECLARE stage string = "offline";
+
+#DECLARE gen_test_only bool = false;
+
+#IF(@stage == "online")
+    #DECLARE path string = "local/users/v-lianji/";
+    #DECLARE outpath string = "local/users/v-lianji/camera_ready/train-val-online/"; // "local/users/v-lianji/RecSys2017/pipeline/latest/";   // "my/RecSys2017/pipeline/";
+#ELSEIF(@stage=="offline")
+    #DECLARE path string = "local/users/v-lianji/offline/";
+    #DECLARE outpath string = "local/users/v-lianji/camera_ready/has_latlng/"; // "local/users/v-lianji/RecSys2017/pipeline/latest/";   // "my/RecSys2017/pipeline/";
+#ENDIF
+
+
+
+#DECLARE path_train_interactions_nozeor string = @path + "train_interactions_nozeor.csv";
+#DECLARE path_users_noheader string = @path + "users_noheader.csv";
+#DECLARE path_items_noheader string = @path + "items_noheader.csv";
+
+#DECLARE path_train02_candidates_localgen string =   "local/users/v-lianji/camera_ready/train-val-online/train_candi.csv";  // train_interactions_moreneginst_no0_shuffle_middle.csv  train02_candidates_localgen.csv  train_interactions_userbased_middleneg_shuffled.csv
+#DECLARE path_test02_candidates_bestoffline string =  "local/users/v-lianji/camera_ready/train-val-online/expanded_valid_candi.csv";
+#DECLARE path_test_complete_0_candidates_bestoffline string =  "local/users/v-lianji/camera_ready/test_candi/test_complete_"+@@k@@+"_candidates.tsv";  //  @path + "test_complete_0_candidates_bestoffline.tsv";  
+
+#DECLARE path_train02_highdim string = @outpath + "train02_overfitting_highdim_big5.sparse.csv";
+#DECLARE path_test02_highdim string = @outpath + "valid02_overfitting_highdim_big5.sparse.csv";
+#DECLARE path_test_highdim string = @outpath + "test_complete_"+@@k@@+".sparse.csv";
+
+
+#DECLARE path_cluster_id_mapping string = @path + "cluster_id_mapping.tsv";
+#DECLARE path_user_blacklist string = @path + "user_blacklist.tsv";
+#DECLARE path_new_candidates_training string = @path + "new_candidates_training.tsv";
+
+
+RESOURCE @path_train_interactions_nozeor; 
+RESOURCE @path_users_noheader;
+RESOURCE @path_items_noheader; 
+RESOURCE @path_cluster_id_mapping;
+RESOURCE @path_user_blacklist;
+
+
+RESOURCE "local/users/v-lianji/item_title_stat.csv";
+RESOURCE "local/users/v-lianji/user_title_stat.csv";
+RESOURCE "local/users/v-lianji/item_tags_stat.csv";
+
+
+/////////////////////////  train
+//#IF(@gen_test_only == false)
+//data =
+//    EXTRACT uid : string,
+//            iid : string,
+//            label : int
+//    FROM @path_train02_candidates_localgen
+//    USING DefaultTextExtractor(delimiter: '\t');
+//    
+//data =  
+//SELECT  
+//       MyFeatureTest.GenFeature(uid, iid, label, true) AS Features
+//FROM data
+//HAVING !string.IsNullOrEmpty(Features);
+//
+//    
+//    
+//OUTPUT 
+//TO @path_train02_highdim
+//USING DefaultTextOutputter(delimiter:'\t');
+//#ENDIF
+//
+//
+// 
+//    data =
+//        EXTRACT uid : string,
+//               iid : string,
+//                label : int
+//        FROM @path_test02_candidates_bestoffline
+//        USING DefaultTextExtractor(delimiter: '\t');
+// 
+//    SELECT  
+//        MyFeatureTest.GenFeature(uid, iid, label, false) AS Features
+//    FROM data
+//    HAVING !string.IsNullOrEmpty(Features);
+//
+//    OUTPUT 
+//    TO @path_test02_highdim
+//    USING DefaultTextOutputter(delimiter:'\t');
+// 
+ 
+data =
+    EXTRACT uid : string,
+            iid : string,
+            label : int
+    FROM @path_test_complete_0_candidates_bestoffline  
+    USING DefaultTextExtractor(delimiter: '\t');
+ 
+SELECT  
+       MyFeatureTest.GenFeature(uid, iid, label, false) AS Features
+FROM data
+     WHERE !uid.StartsWith("user") AND !iid.StartsWith("item")
+HAVING !string.IsNullOrEmpty(Features);
+
+OUTPUT 
+TO @path_test_highdim
+USING DefaultTextOutputter(delimiter:'\t');
+ 
+
+
+
+
+
+#CS
+using Microsoft.SCOPE.Types;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using ScopeRuntime;
+
+public class MyFeatureTest
+{
+    public static Dictionary<string, User> userdict = null;
+    public static Dictionary<string, Item> itemdict = null;
+
+    public static Dictionary<string, float> user_titlefreq = null;
+    public static Dictionary<string, float> item_titlefreq = null;
+    public static Dictionary<string, float> item_tagfreq = null;
+
+    public static Dictionary<string, int> id2clusterid = null; 
+    public static Dictionary<string, int> user2itemcnt = null;
+
+
+    static MyFeatureTest()
+    {
+        userdict = BuildUserDict();
+        itemdict = BuildItemDict();
+
+        user_titlefreq = Common.LoadDict(@"user_title_stat.csv", 0, 1);
+        item_titlefreq = Common.LoadDict(@"item_title_stat.csv", 0, 1);
+        item_tagfreq = Common.LoadDict(@"item_tags_stat.csv", 0, 1);
+
+        using (StreamReader rd = new StreamReader("train_interactions_nozeor.csv"))
+        {
+            string content = null;
+            while ((content = rd.ReadLine()) != null)
+            {
+                string[] words = content.Split('\t');
+
+                if (userdict.ContainsKey(words[0]) && itemdict.ContainsKey(words[1]))
+                {
+                    if (words[2] != "0")
+                    {
+                        userdict[words[0]].AddViewItem(itemdict[words[1]], int.Parse(words[2]));
+                    }
+                }
+            }
+        }
+
+        id2clusterid = new Dictionary<string, int>();
+        using (StreamReader rd = new StreamReader("cluster_id_mapping.tsv"))
+        {
+            string content = null;
+            while ((content = rd.ReadLine()) != null)
+            {
+                string[] words = content.Split('\t');
+                if (!id2clusterid.ContainsKey(words[0]))
+                {
+                    id2clusterid.Add(words[0], int.Parse(words[1]));
+                }
+            }
+        }
+
+        user2itemcnt = new Dictionary<string, int>();
+        using (StreamReader rd = new StreamReader("user_blacklist.tsv"))
+        {
+            string content = null;
+            while ((content = rd.ReadLine()) != null)
+            {
+                string[] words = content.Split('\t');
+                if (!user2itemcnt.ContainsKey(words[0]))
+                {
+                    user2itemcnt.Add(words[0], int.Parse(words[1]));
+                }
+                //if (int.Parse(words[1]) > 800)
+                //{
+                //    if (!userbalcklist.Contains(words[0]))
+                //    {
+                //        userbalcklist.Add(words[0]);
+                //    }
+                //}
+            }
+        }
+
+    }
+
+    public static string GenFeature(string uid, string iid, int label, bool train_mode = true)
+    {
+        if (!userdict.ContainsKey(uid) || !itemdict.ContainsKey(iid))
+        {
+            return "";
+        }
+
+        if (train_mode && user2itemcnt.ContainsKey(uid) && user2itemcnt[uid]>800)
+        {
+            return "";
+        }
+
+        if (label == 0 || label == 4)
+        {
+            label = 0;
+        }
+        else
+        {
+            label = 1;
+        }
+
+        Dictionary<string, Dictionary<string, float>> user2indus = new Dictionary<string, Dictionary<string, float>>();
+        Dictionary<string, Dictionary<string, float>> user2disc = new Dictionary<string, Dictionary<string, float>>();
+        Dictionary<string, Dictionary<string, float>> user2clevel = new Dictionary<string, Dictionary<string, float>>();
+        Dictionary<string, Dictionary<string, float>> user2employment = new Dictionary<string, Dictionary<string, float>>();
+         
+       StringBuilder res = new StringBuilder(string.Format("{0},uid_{1}:1,iid_{2}:1",label,uid,iid));
+
+
+        
+       var user_info = userdict[uid];
+       var item_info = itemdict[iid];
+
+       int match = 0;
+       foreach (var title in user_info.title)
+       {
+           if (item_info.title.Contains(title)) //title != "000" &&
+           {
+               match++;
+           }
+       }
+       res.Append(string.Format(",ttcnt:{0}", match));
+
+       res.Append(string.Format(",cle_{0}:1", user_info.clevel.Equals(item_info.clevel) && !string.IsNullOrEmpty(user_info.clevel) ? 1 : 0));
+       res.Append(string.Format(",ine_{0}:1", user_info.indus.Equals(item_info.indus) && !string.IsNullOrEmpty(user_info.indus) ? 1 : 0)); //&& user_info.indus != "23"
+       res.Append(string.Format(",die_{0}:1", user_info.disc.Equals(item_info.disc) && !string.IsNullOrEmpty(user_info.disc) ? 1 : 0));//&& user_info.disc != "23"
+       res.Append(string.Format(",coe_{0}:1", user_info.country.Equals(item_info.country) && !string.IsNullOrEmpty(user_info.country) ? 1 : 0));
+       res.Append(string.Format(",rege_{0}:1", user_info.region.Equals(item_info.region) && !string.IsNullOrEmpty(user_info.region) ? 1 : 0));
+
+       match = 0;
+       foreach (var title in user_info.title)
+       {
+           if (item_info.tags.Contains(title)) //title != "000" && 
+           {
+               match++;
+           }
+       }
+       res.Append(string.Format(",tagm:{0}", match));
+
+
+       int u_clevel = 0;
+       int j_clevel = 0;
+       int.TryParse(user_info.clevel, out u_clevel);
+       int.TryParse(item_info.clevel, out j_clevel);
+       res.Append(string.Format(",cga_{0}:1", u_clevel - j_clevel));
+
+       double doc_sim = 0, title_tag_sim = 0;
+       foreach (var word in user_info.title)
+       {
+           if (!string.IsNullOrEmpty(word) && user_titlefreq.ContainsKey(word) && user_titlefreq[word] >= 20 )
+           {
+               if (item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+               {
+                   if (item_info.title2cnt.ContainsKey(word))
+                   {
+                       doc_sim += Math.Sqrt(user_info.title2cnt[word] * item_info.title2cnt[word]) * Math.Log10(1000000.0 / user_titlefreq[word]);
+                   }
+               }
+               if (item_info.tags.Contains(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+               {
+                   title_tag_sim += Math.Sqrt(user_info.title2cnt[word] * (1.0 / item_info.tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+               }
+           }
+       }
+       res.Append(string.Format(",docsim:{0},titasim:{1}", doc_sim, title_tag_sim));
+
+       
+         
+       
+
+       //CountOverlap(user_info.title, item_info.title, top_key_stat_thre, top_key_stat01, keywordMgr.useritem_index);
+
+       //HashSet<string> user_viewed_titles = new HashSet<string>();
+       //HashSet<string> user_viewed_tags = new HashSet<string>();
+         
+
+       double nearest_viewed_item = 0, avg_view_item_score = 0, sum_view_item_socre = 0;
+       double nearest_viewed_item_tag = 0, avg_view_item_score_tag = 0, sum_view_item_score_tag = 0;
+       double nearest_viewed_item_tag_w = 0, avg_view_item_score_tag_w = 0, sum_view_item_score_tag_w = 0;
+       double avg_industry_match = 0, sum_industry_match = 0;
+       double avg_disc_match = 0, sum_disc_match = 0;
+       double avg_employment_match = 0, sum_employment_match = 0;
+       double avg_carerr_match = 0, sum_career_match = 0;
+
+       double sum_view_item_socre_4 = 0;
+       double sum_view_item_score_tag_4 = 0;
+
+       double sum_view_item_socre_5 = 0;
+       double sum_view_item_score_tag_5 = 0;
+
+       double sum_view_item_socre_23 = 0;
+       double sum_view_item_score_tag_23 = 0;
+
+       double avg_city_match = 0, sum_city_match = 0;
+       double avg_country_match = 0, sum_country_match = 0;
+       double avg_latlng_dist = 0, min_latlng_dist = -1 , sum_latlng_dist=0 , effect_latlng_cnt = 0;
+
+       Dictionary<string, int> user_view_title = new Dictionary<string, int>();
+       Dictionary<string, int> user_view_tag = new Dictionary<string, int>();
+
+       int user_view_item_cnt = 0;
+
+       if (user_info.interactions != null && user_info.interactions.Count > 1)
+       {
+           foreach (var tuple in user_info.interactions)
+           {
+               double score_title = 0, score_tag = 0, score_tag_w = 0;
+
+               if (tuple.Item2 != 0 && tuple.Item2 == 4 && tuple.Item1 != iid)
+               {
+                   if (itemdict.ContainsKey(tuple.Item1))
+                   {
+                       var tid = tuple.Item1;
+                       foreach (var word in item_info.title)
+                       {  
+                           if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                           {
+                               if (itemdict[tid].title2cnt.ContainsKey(word))
+                               {
+                                   sum_view_item_socre_4 += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                               }
+                           }
+                       }
+                       foreach (var word in item_info.tags)
+                       {  
+                           if (itemdict[tid].tags.Contains(word))
+                           { 
+                               if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                               {
+                                   sum_view_item_score_tag_4 += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                               }
+                           }
+                       } 
+                   }
+               }
+
+               if (tuple.Item2 != 0 && tuple.Item2 == 5 && tuple.Item1 != iid)
+               {
+                   if (itemdict.ContainsKey(tuple.Item1))
+                   {
+                       var tid = tuple.Item1;
+                       foreach (var word in item_info.title)
+                       {
+                           if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                           {
+                               if (itemdict[tid].title2cnt.ContainsKey(word))
+                               {
+                                   sum_view_item_socre_5 += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                               }
+                           }
+                       }
+                       foreach (var word in item_info.tags)
+                       {
+                           if (itemdict[tid].tags.Contains(word))
+                           {
+                               if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                               {
+                                   sum_view_item_score_tag_5 += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                               }
+                           }
+                       }
+                   }
+               }
+
+               if (tuple.Item2 != 0 && (tuple.Item2 == 2 || tuple.Item2 == 3) && tuple.Item1 != iid)
+               {
+                   if (itemdict.ContainsKey(tuple.Item1))
+                   {
+                       var tid = tuple.Item1;
+                       foreach (var word in item_info.title)
+                       {
+                           if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                           {
+                               if (itemdict[tid].title2cnt.ContainsKey(word))
+                               {
+                                   sum_view_item_socre_23 += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                               }
+                           }
+                       }
+                       foreach (var word in item_info.tags)
+                       {
+                           if (itemdict[tid].tags.Contains(word))
+                           {
+                               if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                               {
+                                   sum_view_item_score_tag_23 += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                               }
+                           }
+                       }
+                   }
+               }
+
+               if (tuple.Item2 != 0 && tuple.Item2 != 4 && tuple.Item1 != iid)
+               {
+                   if (itemdict.ContainsKey(tuple.Item1))
+                   {
+                       user_view_item_cnt++;
+                       var tid = tuple.Item1;
+                       foreach (var word in item_info.title)
+                       {
+                           //if (!user_viewed_titles.Contains(word))
+                           //{
+                           //    user_viewed_titles.Add(word);
+                           //}
+                           if (!user_view_title.ContainsKey(word))
+                           {
+                               user_view_title.Add(word, 0);
+                           }
+                           user_view_title[word]++;
+                           if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                           {
+                               if (itemdict[tid].title2cnt.ContainsKey(word))
+                               {
+                                   score_title += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                               }
+                           }
+                       }
+                       foreach (var word in item_info.tags)
+                       {
+                           //if (!user_viewed_tags.Contains(word))
+                           //{
+                           //    user_viewed_tags.Add(word);
+                           //}
+                           if (!user_view_tag.ContainsKey(word))
+                           {
+                               user_view_tag.Add(word, 0);
+                           }
+                           user_view_tag[word]++;
+
+                           if (itemdict[tid].tags.Contains(word))
+                           {
+                               score_tag += 1;
+                               if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                               {
+                                   score_tag_w += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                               }
+                           }
+                       }
+                       if (itemdict[tid].indus == itemdict[iid].indus)
+                       {
+                           sum_industry_match++;
+                       }
+                       if (itemdict[tid].disc == itemdict[iid].disc)
+                       {
+                           sum_disc_match++;
+                       }
+                       if (itemdict[tid].clevel == itemdict[iid].clevel)
+                       {
+                           sum_career_match++;
+                       }
+                       if (itemdict[tid].employment == itemdict[iid].employment)
+                       {
+                           sum_employment_match++;
+                       }
+                       if (itemdict[tid].region == itemdict[iid].region)
+                       {
+                           sum_city_match++;
+                       }
+                       if (itemdict[tid].country == itemdict[iid].country)
+                       {
+                           sum_country_match++;
+                       }
+                       if (itemdict[iid].lat > -9999 && itemdict[iid].lng > -9999 && itemdict[tid].lat > -9999 && itemdict[tid].lng > -9999)
+                       {
+                           double cur_dist = Math.Sqrt((itemdict[iid].lat - itemdict[tid].lat) * (itemdict[iid].lat - itemdict[tid].lat) + (itemdict[iid].lng - itemdict[tid].lng) * (itemdict[iid].lng - itemdict[tid].lng));
+                           sum_latlng_dist += cur_dist;
+                           effect_latlng_cnt++;
+                           if (min_latlng_dist < 0 || min_latlng_dist > cur_dist)
+                           {
+                               min_latlng_dist = cur_dist;
+                           }
+                       }
+                   }
+               }
+
+               sum_view_item_socre += score_title;
+               sum_view_item_score_tag += score_tag;
+               sum_view_item_score_tag_w += score_tag_w;
+
+               nearest_viewed_item = Math.Max(nearest_viewed_item, score_title);
+               nearest_viewed_item_tag = Math.Max(nearest_viewed_item_tag, score_tag);
+               nearest_viewed_item_tag_w = Math.Max(nearest_viewed_item_tag_w, score_tag_w);
+                
+           }
+
+           avg_view_item_score = sum_view_item_socre / user_info.interactions.Count;
+           avg_view_item_score_tag = sum_view_item_score_tag / user_info.interactions.Count;
+           avg_view_item_score_tag_w = sum_view_item_score_tag_w / user_info.interactions.Count;
+
+           if (user_view_item_cnt > 0)
+           {
+               avg_carerr_match = sum_career_match / user_view_item_cnt;
+               avg_disc_match = sum_disc_match / user_view_item_cnt;
+               avg_employment_match = sum_employment_match / user_view_item_cnt;
+               avg_industry_match = sum_industry_match / user_view_item_cnt;
+               avg_city_match = sum_city_match / user_view_item_cnt;
+               avg_country_match = sum_country_match / user_view_item_cnt;
+           }
+
+           if (effect_latlng_cnt > 0)
+           {
+               avg_latlng_dist = sum_latlng_dist / effect_latlng_cnt;
+           }else{
+               avg_latlng_dist = 0;
+               min_latlng_dist = 0;
+           }
+       }
+
+       float user_view_title_cnt = 0;
+       foreach (var pair in user_view_title)
+       {
+           user_view_title_cnt += pair.Value;
+       }
+       float user_view_tag_cnt = 0;
+       foreach (var pair in user_view_tag)
+       {
+           user_view_tag_cnt += pair.Value;
+       }
+
+       double global_view_item_title_sim = 0;
+       foreach (var word in item_info.title)
+       {
+           if (user_view_title_cnt > 0 && user_view_title.ContainsKey(word) && !string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+           {
+               global_view_item_title_sim += Math.Sqrt(user_view_title[word] / user_view_title_cnt * item_info.title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+           }
+       }
+       double global_view_item_tag_sim = 0;
+       foreach (var word in item_info.tags)
+       {
+           if (user_view_tag_cnt > 0 && user_view_tag.ContainsKey(word) && !string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+           {
+               global_view_item_tag_sim += Math.Sqrt(user_view_tag[word] / user_view_tag_cnt / item_info.tags.Count) * Math.Log10(1000000.0 / item_tagfreq[word]);
+           }
+       }  
+
+        if (user_view_item_cnt > 5)
+        {
+
+            res.Append(string.Format(",nvi:{0},nvit:{1},svis:{2},svist:{3},avis:{4},avist:{5}", nearest_viewed_item, nearest_viewed_item_tag, sum_view_item_socre, sum_view_item_score_tag, avg_view_item_score, avg_view_item_score_tag));
+
+            res.Append(string.Format(",nvitw:{0},svistw:{1},avistw:{2},gvisw:{3},gvistw:{4}", nearest_viewed_item_tag_w, sum_view_item_score_tag_w, avg_view_item_score_tag_w, global_view_item_title_sim, global_view_item_tag_sim));
+            res.Append(string.Format(",4svis:{0},4svits:{1}", sum_view_item_socre_4, sum_view_item_score_tag_4));
+            res.Append(string.Format(",5svis:{0},5svits:{1}", sum_view_item_socre_5, sum_view_item_score_tag_5));
+            res.Append(string.Format(",23svis:{0},23svits:{1}", sum_view_item_socre_23, sum_view_item_score_tag_23));
+
+            res.Append(string.Format(",avgcarm:{0},sumcarm:{1},avgdism:{2},sumdism:{3},avgempm:{4},sumempm:{5},avgindm:{6},sumindm:{7},avgcitym:{8},sumcitym:{9},avgcounm:{10},sumcounm:{11}",
+                avg_carerr_match, sum_career_match, avg_disc_match, sum_disc_match, avg_employment_match, sum_employment_match, avg_industry_match, sum_industry_match, avg_city_match, sum_city_match, avg_country_match, sum_country_match));
+        }
+        else
+        {
+
+            res.Append(string.Format(",nvi:{0},nvit:{1},svis:{2},svist:{3},avis:{4},avist:{5}", 0, 0, 0, 0, 0, 0));
+
+            res.Append(string.Format(",nvitw:{0},svistw:{1},avistw:{2},gvisw:{3},gvistw:{4}", 0, 0, 0, 0, 0));
+            res.Append(string.Format(",4svis:{0},4svits:{1}", 0, 0));
+            res.Append(string.Format(",5svis:{0},5svits:{1}", 0, 0));
+            res.Append(string.Format(",23svis:{0},23svits:{1}", 0, 0));
+
+            res.Append(string.Format(",avgcarm:{0},sumcarm:{1},avgdism:{2},sumdism:{3},avgempm:{4},sumempm:{5},avgindm:{6},sumindm:{7},avgcitym:{8},sumcitym:{9},avgcounm:{10},sumcounm:{11}",
+               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+        }
+
+        res.Append(string.Format(",avg_latlng_dist:{0},min_latlng_dist:{1}", avg_latlng_dist, min_latlng_dist));
+
+       res.Append(string.Format(",ipa_{0}:1,empl_{1}:1,ititc:{2},itagc:{3},utitc:{4}", item_info.is_paid, item_info.employment, item_info.title_cnt, item_info.tags.Count, user_info.title_cnt));
+       res.Append(string.Format(",enec_{0}:1,eye_{1}:1,eyic_{2}:1,edu_{3}:1,premi_{4}:1,udisc_{5}:1,uind_{6}:1,idisc_{7}:1,iind_{8}:1", user_info.experience_n_entries_class, user_info.experience_years_experience, user_info.experience_years_in_current
+           , user_info.edu_degree, user_info.premium, user_info.disc, user_info.indus, item_info.disc, item_info.indus));
+       res.Append(string.Format(",ucout_{0}:1,ureg_{1}:1,icout_{2}:1,ireg_{3}:1,ucle_{4}:1,icle_{5}:1", user_info.country, user_info.region, item_info.country, item_info.region, user_info.clevel, item_info.clevel));
+         
+        
+       res.Append(string.Format(",uicl_{0}_{1}:1", user_info.clevel, item_info.clevel));
+       res.Append(string.Format(",ucl_iem_{0}_{1}:1", user_info.clevel, item_info.employment));
+       res.Append(string.Format(",ucl_iin_{0}_{1}:1", user_info.clevel, item_info.indus));
+       res.Append(string.Format(",ucl_idi_{0}_{1}:1", user_info.clevel, item_info.disc));
+
+       res.Append(string.Format(",uidisp_{0}_{1}:1", user_info.disc, item_info.disc));
+       res.Append(string.Format(",udi_icl_{0}_{1}:1", user_info.disc, item_info.clevel));
+       res.Append(string.Format(",udi_iem_{0}_{1}:1", user_info.disc, item_info.employment));
+       res.Append(string.Format(",udi_iin_{0}_{1}:1", user_info.disc, item_info.indus));
+
+       res.Append(string.Format(",uiinds_{0}_{1}:1", user_info.indus, item_info.indus));
+       res.Append(string.Format(",uind_idis_{0}_{1}:1", user_info.indus, item_info.disc));
+       res.Append(string.Format(",uind_icl_{0}_{1}:1", user_info.indus, item_info.clevel));
+       res.Append(string.Format(",uind_iem_{0}_{1}:1", user_info.indus, item_info.employment));
+
+       res.Append(string.Format(",uenec_icl_{0}_{1}:1", user_info.experience_n_entries_class, item_info.clevel));
+       res.Append(string.Format(",uenec_iem_{0}_{1}:1", user_info.experience_n_entries_class, item_info.employment));
+       res.Append(string.Format(",uenec_iind_{0}_{1}:1", user_info.experience_n_entries_class, item_info.indus));
+       res.Append(string.Format(",uenec_idis_{0}_{1}:1", user_info.experience_n_entries_class, item_info.disc));
+
+       res.Append(string.Format(",uey_icl_{0}_{1}:1", user_info.experience_years_experience, item_info.clevel));       
+       res.Append(string.Format(",uey_iem_{0}_{1}:1", user_info.experience_years_experience, item_info.employment));
+       res.Append(string.Format(",uey_iind_{0}_{1}:1", user_info.experience_years_experience, item_info.indus));
+       res.Append(string.Format(",uey_idis_{0}_{1}:1", user_info.experience_years_experience, item_info.disc));
+
+       res.Append(string.Format(",uecy_icl_{0}_{1}:1", user_info.experience_years_in_current, item_info.clevel));
+       res.Append(string.Format(",uecy_iem_{0}_{1}:1", user_info.experience_years_in_current, item_info.employment));
+       res.Append(string.Format(",uecy_iind_{0}_{1}:1", user_info.experience_years_in_current, item_info.indus));
+       res.Append(string.Format(",uecy_idis_{0}_{1}:1", user_info.experience_years_in_current, item_info.disc));
+
+       res.Append(string.Format(",uedy_icl_{0}_{1}:1", user_info.edu_degree, item_info.clevel));
+       res.Append(string.Format(",uedy_iem_{0}_{1}:1", user_info.edu_degree, item_info.employment));
+       res.Append(string.Format(",uedy_iind_{0}_{1}:1", user_info.edu_degree, item_info.indus));
+       res.Append(string.Format(",uedy_idis_{0}_{1}:1", user_info.edu_degree, item_info.disc));
+
+
+
+
+
+       //// common words
+       //foreach (var word in user_info.title2cnt.Keys)
+       //{
+       //    if (user_titlefreq.ContainsKey(word) && user_titlefreq[word] >= 20)
+       //    {
+       //        if (item_info.title2cnt.ContainsKey(word))
+       //        {
+       //            res.Append(string.Format(",comwtit_{0}:{1}", word, Math.Sqrt(item_info.title2cnt[word] * user_info.title2cnt[word])));
+       //        }
+       //    }
+       //}
+
+
+       foreach (var word in item_info.title2cnt.Keys)
+       {
+           if (user_titlefreq.ContainsKey(word) && user_titlefreq[word] >= 20)
+           {
+               if (user_info.title2cnt.ContainsKey(word) || user_view_title.ContainsKey(word))
+               {
+                   res.Append(string.Format(",comwtit_{0}:1", word));
+               }
+           }
+       }
+
+       /// common tags
+       foreach (var word in item_info.tags)
+       {
+           if (item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20 && user_view_tag.ContainsKey(word))
+           {
+               res.Append(string.Format(",ittaco_{0}:1", word));
+           }
+       }
+
+       foreach (var field in user_info.edu_fieldofstudies)
+       {
+           res.Append(string.Format(",ufie_{0}:1", field)); ;
+       }
+       foreach (var field in user_info.edu_fieldofstudies)
+       {
+           res.Append(string.Format(",ufie_iind_{0}_{1}:1", field, item_info.indus));
+           res.Append(string.Format(",ufie_idis_{0}_{1}:1", field, item_info.disc));
+           if (item_info.title2cnt.ContainsKey(field))
+           {
+               res.Append(string.Format(",ufie_itit_{0}:{1}", field, item_info.title2cnt[field]));
+           }
+           if (item_info.tags.Contains(field))
+           {
+               res.Append(string.Format(",ufie_itag_{0}:1", field)); 
+           }
+       }
+
+
+       string cluster_uid = "uid_" + uid;
+       string cluster_iid = "iid_" + iid;
+       if (id2clusterid.ContainsKey(cluster_uid))
+       {
+           res.Append(string.Format(",cluuid_{0}:1", id2clusterid[cluster_uid]));
+       }
+       else
+       {
+           res.Append(string.Format(",cluuid_unk:1"));
+       }
+
+       if (id2clusterid.ContainsKey(cluster_iid))
+       {
+           res.Append(string.Format(",cluiid_{0}:1", id2clusterid[cluster_iid]));
+       }
+       else
+       {
+           res.Append(string.Format(",cluiid_unk:1"));
+       }
+
+       if (id2clusterid.ContainsKey(cluster_uid) && id2clusterid.ContainsKey(cluster_iid))
+       {
+           if (id2clusterid[cluster_uid] == id2clusterid[cluster_iid])
+           {
+               res.Append(string.Format(",cluuis:{0}", 1));
+           }
+           else
+           {
+               res.Append(string.Format(",cluuis:{0}", 0));
+           }
+       }
+
+
+
+       //if (user2itemcnt.ContainsKey(uid))
+       //{
+       //    res.Append(string.Format(",uid_{0}:1", uid));
+       //}
+
+       return res.ToString();
+    }
+
+    public static string GenDenseFeature(string uid, string iid, int label, bool train_mode = true)
+    {
+        if (!userdict.ContainsKey(uid) || !itemdict.ContainsKey(iid))
+        {
+            return "";
+        }
+
+        if (train_mode && user2itemcnt.ContainsKey(uid) && user2itemcnt[uid] > 800)
+        {
+            return "";
+        }
+
+        if (label == 0 || label == 4)
+        {
+            label = 0;
+        }
+        else
+        {
+            label = 1;
+        }
+
+        Dictionary<string, Dictionary<string, float>> user2indus = new Dictionary<string, Dictionary<string, float>>();
+        Dictionary<string, Dictionary<string, float>> user2disc = new Dictionary<string, Dictionary<string, float>>();
+        Dictionary<string, Dictionary<string, float>> user2clevel = new Dictionary<string, Dictionary<string, float>>();
+        Dictionary<string, Dictionary<string, float>> user2employment = new Dictionary<string, Dictionary<string, float>>();
+
+        StringBuilder res = new StringBuilder(string.Format("{0},{1}", label, uid));
+
+
+
+        var user_info = userdict[uid];
+        var item_info = itemdict[iid];
+
+        int match = 0;
+        foreach (var title in user_info.title)
+        {
+            if (item_info.title.Contains(title)) //title != "000" &&
+            {
+                match++;
+            }
+        }
+        res.Append(string.Format(",{0}", match));
+
+        res.Append(string.Format(",{0}", user_info.clevel.Equals(item_info.clevel) && !string.IsNullOrEmpty(user_info.clevel) ? 1 : 0));
+        res.Append(string.Format(",{0}", user_info.indus.Equals(item_info.indus) && !string.IsNullOrEmpty(user_info.indus) ? 1 : 0)); //&& user_info.indus != "23"
+        res.Append(string.Format(",{0}", user_info.disc.Equals(item_info.disc) && !string.IsNullOrEmpty(user_info.disc) ? 1 : 0));//&& user_info.disc != "23"
+        res.Append(string.Format(",{0}", user_info.country.Equals(item_info.country) && !string.IsNullOrEmpty(user_info.country) ? 1 : 0));
+        res.Append(string.Format(",{0}", user_info.region.Equals(item_info.region) && !string.IsNullOrEmpty(user_info.region) ? 1 : 0));
+
+        match = 0;
+        foreach (var title in user_info.title)
+        {
+            if (item_info.tags.Contains(title)) //title != "000" && 
+            {
+                match++;
+            }
+        }
+        res.Append(string.Format(",{0}", match));
+
+
+        int u_clevel = 0;
+        int j_clevel = 0;
+        int.TryParse(user_info.clevel, out u_clevel);
+        int.TryParse(item_info.clevel, out j_clevel);
+        res.Append(string.Format(",{0}", u_clevel - j_clevel));
+
+        double doc_sim = 0, title_tag_sim = 0;
+        foreach (var word in user_info.title)
+        {
+            if (!string.IsNullOrEmpty(word) && user_titlefreq.ContainsKey(word) && user_titlefreq[word] >= 20)
+            {
+                if (item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                {
+                    if (item_info.title2cnt.ContainsKey(word))
+                    {
+                        doc_sim += Math.Sqrt(user_info.title2cnt[word] * item_info.title2cnt[word]) * Math.Log10(1000000.0 / user_titlefreq[word]);
+                    }
+                }
+                if (item_info.tags.Contains(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                {
+                    title_tag_sim += Math.Sqrt(user_info.title2cnt[word] * (1.0 / item_info.tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                }
+            }
+        }
+        res.Append(string.Format(",{0},{1}", doc_sim, title_tag_sim));
+
+
+
+
+
+        //CountOverlap(user_info.title, item_info.title, top_key_stat_thre, top_key_stat01, keywordMgr.useritem_index);
+
+        //HashSet<string> user_viewed_titles = new HashSet<string>();
+        //HashSet<string> user_viewed_tags = new HashSet<string>();
+
+
+        double nearest_viewed_item = 0, avg_view_item_score = 0, sum_view_item_socre = 0;
+        double nearest_viewed_item_tag = 0, avg_view_item_score_tag = 0, sum_view_item_score_tag = 0;
+        double nearest_viewed_item_tag_w = 0, avg_view_item_score_tag_w = 0, sum_view_item_score_tag_w = 0;
+        double avg_industry_match = 0, sum_industry_match = 0;
+        double avg_disc_match = 0, sum_disc_match = 0;
+        double avg_employment_match = 0, sum_employment_match = 0;
+        double avg_carerr_match = 0, sum_career_match = 0;
+
+        double sum_view_item_socre_4 = 0;
+        double sum_view_item_score_tag_4 = 0;
+
+        double sum_view_item_socre_5 = 0;
+        double sum_view_item_score_tag_5 = 0;
+
+        double sum_view_item_socre_23 = 0;
+        double sum_view_item_score_tag_23 = 0;
+
+        double avg_city_match = 0, sum_city_match = 0;
+        double avg_country_match = 0, sum_country_match = 0;
+        double avg_latlng_dist = 0, min_latlng_dist = -1, sum_latlng_dist = 0, effect_latlng_cnt = 0;
+
+        Dictionary<string, int> user_view_title = new Dictionary<string, int>();
+        Dictionary<string, int> user_view_tag = new Dictionary<string, int>();
+
+        int user_view_item_cnt = 0;
+
+        if (user_info.interactions != null && user_info.interactions.Count > 1)
+        {
+            foreach (var tuple in user_info.interactions)
+            {
+                double score_title = 0, score_tag = 0, score_tag_w = 0;
+
+                if (tuple.Item2 != 0 && tuple.Item2 == 4 && tuple.Item1 != iid)
+                {
+                    if (itemdict.ContainsKey(tuple.Item1))
+                    {
+                        var tid = tuple.Item1;
+                        foreach (var word in item_info.title)
+                        {
+                            if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                            {
+                                if (itemdict[tid].title2cnt.ContainsKey(word))
+                                {
+                                    sum_view_item_socre_4 += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                                }
+                            }
+                        }
+                        foreach (var word in item_info.tags)
+                        {
+                            if (itemdict[tid].tags.Contains(word))
+                            {
+                                if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                                {
+                                    sum_view_item_score_tag_4 += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (tuple.Item2 != 0 && tuple.Item2 == 5 && tuple.Item1 != iid)
+                {
+                    if (itemdict.ContainsKey(tuple.Item1))
+                    {
+                        var tid = tuple.Item1;
+                        foreach (var word in item_info.title)
+                        {
+                            if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                            {
+                                if (itemdict[tid].title2cnt.ContainsKey(word))
+                                {
+                                    sum_view_item_socre_5 += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                                }
+                            }
+                        }
+                        foreach (var word in item_info.tags)
+                        {
+                            if (itemdict[tid].tags.Contains(word))
+                            {
+                                if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                                {
+                                    sum_view_item_score_tag_5 += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (tuple.Item2 != 0 && (tuple.Item2 == 2 || tuple.Item2 == 3) && tuple.Item1 != iid)
+                {
+                    if (itemdict.ContainsKey(tuple.Item1))
+                    {
+                        var tid = tuple.Item1;
+                        foreach (var word in item_info.title)
+                        {
+                            if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                            {
+                                if (itemdict[tid].title2cnt.ContainsKey(word))
+                                {
+                                    sum_view_item_socre_23 += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                                }
+                            }
+                        }
+                        foreach (var word in item_info.tags)
+                        {
+                            if (itemdict[tid].tags.Contains(word))
+                            {
+                                if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                                {
+                                    sum_view_item_score_tag_23 += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (tuple.Item2 != 0 && tuple.Item2 != 4 && tuple.Item1 != iid)
+                {
+                    if (itemdict.ContainsKey(tuple.Item1))
+                    {
+                        user_view_item_cnt++;
+                        var tid = tuple.Item1;
+                        foreach (var word in item_info.title)
+                        {
+                            //if (!user_viewed_titles.Contains(word))
+                            //{
+                            //    user_viewed_titles.Add(word);
+                            //}
+                            if (!user_view_title.ContainsKey(word))
+                            {
+                                user_view_title.Add(word, 0);
+                            }
+                            user_view_title[word]++;
+                            if (!string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+                            {
+                                if (itemdict[tid].title2cnt.ContainsKey(word))
+                                {
+                                    score_title += Math.Sqrt(itemdict[tid].title2cnt[word] * itemdict[iid].title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+                                }
+                            }
+                        }
+                        foreach (var word in item_info.tags)
+                        {
+                            //if (!user_viewed_tags.Contains(word))
+                            //{
+                            //    user_viewed_tags.Add(word);
+                            //}
+                            if (!user_view_tag.ContainsKey(word))
+                            {
+                                user_view_tag.Add(word, 0);
+                            }
+                            user_view_tag[word]++;
+
+                            if (itemdict[tid].tags.Contains(word))
+                            {
+                                score_tag += 1;
+                                if (!string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+                                {
+                                    score_tag_w += Math.Sqrt(1.0 / (itemdict[tid].tags.Count * itemdict[iid].tags.Count)) * Math.Log10(1000000.0 / item_tagfreq[word]);
+                                }
+                            }
+                        }
+                        if (itemdict[tid].indus == itemdict[iid].indus)
+                        {
+                            sum_industry_match++;
+                        }
+                        if (itemdict[tid].disc == itemdict[iid].disc)
+                        {
+                            sum_disc_match++;
+                        }
+                        if (itemdict[tid].clevel == itemdict[iid].clevel)
+                        {
+                            sum_career_match++;
+                        }
+                        if (itemdict[tid].employment == itemdict[iid].employment)
+                        {
+                            sum_employment_match++;
+                        }
+                        if (itemdict[tid].region == itemdict[iid].region)
+                        {
+                            sum_city_match++;
+                        }
+                        if (itemdict[tid].country == itemdict[iid].country)
+                        {
+                            sum_country_match++;
+                        }
+                        if (itemdict[iid].lat > -9999 && itemdict[iid].lng > -9999 && itemdict[tid].lat > -9999 && itemdict[tid].lng > -9999)
+                        {
+                            double cur_dist = Math.Sqrt((itemdict[iid].lat - itemdict[tid].lat) * (itemdict[iid].lat - itemdict[tid].lat) + (itemdict[iid].lng - itemdict[tid].lng) * (itemdict[iid].lng - itemdict[tid].lng));
+                            sum_latlng_dist += cur_dist;
+                            effect_latlng_cnt++;
+                            if (min_latlng_dist < 0 || min_latlng_dist > cur_dist)
+                            {
+                                min_latlng_dist = cur_dist;
+                            }
+                        }
+                    }
+                }
+
+                sum_view_item_socre += score_title;
+                sum_view_item_score_tag += score_tag;
+                sum_view_item_score_tag_w += score_tag_w;
+
+                nearest_viewed_item = Math.Max(nearest_viewed_item, score_title);
+                nearest_viewed_item_tag = Math.Max(nearest_viewed_item_tag, score_tag);
+                nearest_viewed_item_tag_w = Math.Max(nearest_viewed_item_tag_w, score_tag_w);
+
+            }
+
+            avg_view_item_score = sum_view_item_socre / user_info.interactions.Count;
+            avg_view_item_score_tag = sum_view_item_score_tag / user_info.interactions.Count;
+            avg_view_item_score_tag_w = sum_view_item_score_tag_w / user_info.interactions.Count;
+
+            if (user_view_item_cnt > 0)
+            {
+                avg_carerr_match = sum_career_match / user_view_item_cnt;
+                avg_disc_match = sum_disc_match / user_view_item_cnt;
+                avg_employment_match = sum_employment_match / user_view_item_cnt;
+                avg_industry_match = sum_industry_match / user_view_item_cnt;
+                avg_city_match = sum_city_match / user_view_item_cnt;
+                avg_country_match = sum_country_match / user_view_item_cnt;
+            }
+
+            if (effect_latlng_cnt > 0)
+            {
+                avg_carerr_match = sum_latlng_dist / effect_latlng_cnt;
+            }
+            else
+            {
+                avg_carerr_match = 0;
+                min_latlng_dist = 0;
+            }
+        }
+
+        float user_view_title_cnt = 0;
+        foreach (var pair in user_view_title)
+        {
+            user_view_title_cnt += pair.Value;
+        }
+        float user_view_tag_cnt = 0;
+        foreach (var pair in user_view_tag)
+        {
+            user_view_tag_cnt += pair.Value;
+        }
+
+        double global_view_item_title_sim = 0;
+        foreach (var word in item_info.title)
+        {
+            if (user_view_title_cnt > 0 && user_view_title.ContainsKey(word) && !string.IsNullOrEmpty(word) && item_titlefreq.ContainsKey(word) && item_titlefreq[word] >= 20)
+            {
+                global_view_item_title_sim += Math.Sqrt(user_view_title[word] / user_view_title_cnt * item_info.title2cnt[word]) * Math.Log10(1000000.0 / item_titlefreq[word]);
+            }
+        }
+        double global_view_item_tag_sim = 0;
+        foreach (var word in item_info.tags)
+        {
+            if (user_view_tag_cnt > 0 && user_view_tag.ContainsKey(word) && !string.IsNullOrEmpty(word) && item_tagfreq.ContainsKey(word) && item_tagfreq[word] >= 20)
+            {
+                global_view_item_tag_sim += Math.Sqrt(user_view_tag[word] / user_view_tag_cnt / item_info.tags.Count) * Math.Log10(1000000.0 / item_tagfreq[word]);
+            }
+        }
+
+        if (user_view_item_cnt > 10)
+        {
+
+            res.Append(string.Format(",{0},{1},{2},{3},{4},{5}", nearest_viewed_item, nearest_viewed_item_tag, sum_view_item_socre, sum_view_item_score_tag, avg_view_item_score, avg_view_item_score_tag));
+
+            res.Append(string.Format(",{0},{1},{2},{3},{4}", nearest_viewed_item_tag_w, sum_view_item_score_tag_w, avg_view_item_score_tag_w, global_view_item_title_sim, global_view_item_tag_sim));
+            res.Append(string.Format(",{0},{1}", sum_view_item_socre_4, sum_view_item_score_tag_4));
+            res.Append(string.Format(",{0},{1}", sum_view_item_socre_5, sum_view_item_score_tag_5));
+            res.Append(string.Format(",{0},{1}", sum_view_item_socre_23, sum_view_item_score_tag_23));
+
+            res.Append(string.Format(",{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11}",
+                avg_carerr_match, sum_career_match, avg_disc_match, sum_disc_match, avg_employment_match, sum_employment_match, avg_industry_match, sum_industry_match, avg_city_match, sum_city_match, avg_country_match, sum_country_match));
+        }
+        else
+        {
+
+            res.Append(string.Format(",{0},{1},{2},{3},{4},{5}", 0, 0, 0, 0, 0, 0));
+
+            res.Append(string.Format(",{0},{1},{2},{3},{4}", 0, 0, 0, 0, 0));
+            res.Append(string.Format(",{0},{1}", 0, 0));
+            res.Append(string.Format(",{0},{1}", 0, 0));
+            res.Append(string.Format(",{0},{1}", 0, 0));
+
+            res.Append(string.Format(",{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11}",
+               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+        }
+
+        //  res.Append(string.Format(",{0},{1}", avg_latlng_dist, min_latlng_dist));
+
+        res.Append(string.Format(",c{0},c{1},{2},{3},{4}", item_info.is_paid, item_info.employment, item_info.title_cnt, item_info.tags.Count, user_info.title_cnt));
+        res.Append(string.Format(",c{0},c{1},c{2},c{3},c{4},c{5},c{6},c{7},c{8}", user_info.experience_n_entries_class, user_info.experience_years_experience, user_info.experience_years_in_current
+            , user_info.edu_degree, user_info.premium, user_info.disc, user_info.indus, item_info.disc, item_info.indus));
+        res.Append(string.Format(",c{0},c{1},c{2},c{3},c{4},c{5}", user_info.country, user_info.region, item_info.country, item_info.region, user_info.clevel, item_info.clevel));
+
+
+        string cluster_uid = "uid_" + uid;
+        string cluster_iid = "iid_" + iid;
+        if (id2clusterid.ContainsKey(cluster_uid))
+        {
+            res.Append(string.Format(",c{0}", id2clusterid[cluster_uid]));
+        }
+        else
+        {
+            res.Append(string.Format(",c1"));
+        }
+
+        if (id2clusterid.ContainsKey(cluster_iid))
+        {
+            res.Append(string.Format(",c{0}", id2clusterid[cluster_iid]));
+        }
+        else
+        {
+            res.Append(string.Format(",c1"));
+        }
+
+        if (id2clusterid.ContainsKey(cluster_uid) && id2clusterid.ContainsKey(cluster_iid))
+        {
+            if (id2clusterid[cluster_uid] == id2clusterid[cluster_iid])
+            {
+                res.Append(string.Format(",{0}", 1));
+            }
+            else
+            {
+                res.Append(string.Format(",{0}", 0));
+            }
+        }
+        else
+        {
+            res.Append(string.Format(",{0}", 0));
+        }
+ 
+
+        return res.ToString();
+    }
+
+    private static void CountOverlap(HashSet<string> hashSet01, HashSet<string> hashSet02, int[] thre, int[] stat, Dictionary<string, int> index)
+    {
+        foreach (var word in hashSet01)
+        {
+            if (hashSet02.Contains(word))
+            {
+                for (int i = 0; i < thre.Length; i++)
+                {
+                    if (index.ContainsKey(word) && index[word] < thre[i])
+                    {
+                        stat[i]++;
+                    }
+                }
+            }
+        }
+    }
+
+    public static string AppendInfo(string uid, string iid)
+    {
+        string res = "";
+        if (userdict.ContainsKey(uid))
+        {
+            res += ",c[" + userdict[uid].disc + "]";
+        }
+        if (itemdict.ContainsKey(iid))
+        {
+            res += ",i[" + itemdict[iid].disc + "]";
+        }
+        if (res.Length > 0)
+        {
+            return res.Substring(1);
+        }
+        else
+        {
+            return res;
+        }
+    }
+
+
+
+    public static Dictionary<string, User> BuildUserDict()
+    { 
+        Dictionary<string, User> res = new Dictionary<string, User>();
+        using (StreamReader rd = new StreamReader(@"users_noheader.csv"))
+        {
+            string content = null; 
+            while ((content = rd.ReadLine()) != null)
+            {
+                if (content.StartsWith("id"))
+                {
+                    continue;
+                }
+                User user = new User(content); 
+                if (!res.ContainsKey(user.id))
+                {
+                    res.Add(user.id, user);
+                } 
+            }
+        }
+        return res;
+    }
+
+    public static Dictionary<string, Item> BuildItemDict()
+    { 
+        Dictionary<string, Item> res = new Dictionary<string, Item>();
+        using (StreamReader rd = new StreamReader(@"items_noheader.csv"))
+        {
+            string content = null; 
+            while ((content = rd.ReadLine()) != null)
+            {
+                if (content.StartsWith("id"))
+                {
+                    continue;
+                }
+                Item item = new Item(content);
+                if (!res.ContainsKey(item.id))
+                    res.Add(item.id, item); 
+            }
+        }
+        return res;
+    }
+}
+
+
+
+public class User
+{
+    public string id;
+    public HashSet<string> title;
+    public Dictionary<string, float> title2cnt;
+    public int title_cnt;
+    public string clevel;
+    public string indus;
+    public string disc;
+    public string country;
+    public string region;
+    public string experience_n_entries_class;
+    public string experience_years_experience;
+    public string experience_years_in_current;
+    public string edu_degree;
+    public HashSet<string> edu_fieldofstudies;
+    public string wtcj;
+    public string premium;
+
+    public List<Tuple<string, int>> interactions;
+    public Dictionary<string, int> viewed_item_title_words;
+    public double viewed_titem_title_cnt;
+
+
+
+    public User() { }
+    public User(string line)
+    {
+        string[] words = line.Split('\t');
+
+        id = words[0];
+        title = new HashSet<string>();
+        title2cnt = new Dictionary<string, float>();
+        title_cnt = 0;
+        var tokens = words[1].Split(',');
+        title_cnt = tokens.Length;
+        foreach (var token in tokens)
+        {
+            title.Add(token);
+            if (!title2cnt.ContainsKey(token))
+            {
+                title2cnt.Add(token, 1.0f / title_cnt);
+            }
+            else
+            {
+                title2cnt[token] += 1.0f / title_cnt;
+            }
+        }
+        clevel = words[2];
+        disc = words[3];
+        indus = words[4];
+        country = words[5];
+        region = words[6];
+        experience_n_entries_class = words[7];
+        experience_years_experience = words[8];
+        experience_years_in_current = words[9];
+        edu_degree = words[10];
+        edu_fieldofstudies = new HashSet<string>();
+        foreach (var token in words[11].Split(','))
+        {
+            //if (token != "000")
+            {
+                edu_fieldofstudies.Add(token);
+            }
+        }
+        wtcj = words[12];
+        premium = words[13];
+
+        viewed_titem_title_cnt = 0;
+        interactions = null;
+        viewed_item_title_words = null;
+    }
+
+    public void AddViewItem(Item it, int action)
+    {
+        if (interactions == null)
+        {
+            interactions = new List<Tuple<string, int>>();
+            viewed_item_title_words = new Dictionary<string, int>();
+        }
+
+        foreach (var pair in it.title2cnt)
+        {
+            int tcnt = (int)Math.Round(pair.Value * it.title_cnt);
+            viewed_titem_title_cnt += tcnt;
+            if (!viewed_item_title_words.ContainsKey(pair.Key))
+            {
+                viewed_item_title_words.Add(pair.Key, tcnt);
+            }
+            else
+            {
+                viewed_item_title_words[pair.Key] += tcnt;
+            }
+        }
+
+        interactions.Add(new Tuple<string, int>(it.id, action));
+    }
+}
+
+public class Item
+{
+    public string id;
+    public HashSet<string> title;
+    public int title_cnt;
+    public Dictionary<string, float> title2cnt;
+    public string clevel;
+    public string indus;
+    public string disc;
+    public string country;
+    public string region;
+    public string is_paid;
+    public string employment;
+    public HashSet<string> tags;
+    public DateTime create_at;
+    public float lng;
+    public float lat;
+
+    public Item() { }
+    public Item(string line)
+    {
+        string[] words = line.Split('\t');
+
+        id = words[0];
+        title = new HashSet<string>();
+        title2cnt = new Dictionary<string, float>();
+        title_cnt = 0;
+        var tokens = words[1].Split(',');
+        title_cnt = tokens.Length;
+        foreach (var token in tokens)
+        {
+            title.Add(token);
+            if (!title2cnt.ContainsKey(token))
+            {
+                title2cnt.Add(token, 1.0f / title_cnt);
+            }
+            else
+            {
+                title2cnt[token] += 1.0f / title_cnt;
+            }
+        }
+        clevel = words[2];
+        disc = words[3];
+        indus = words[4];
+        country = words[5];
+        is_paid = words[6];
+        region = words[7];
+        lat = -99999;
+        if (!float.TryParse(words[8], out lat))
+        {
+            lat = -99999;
+        }
+        lng = -99999;
+        if (!float.TryParse(words[9], out lng))
+        {
+            lng = -99999;
+        }
+
+        employment = words[10];
+        tags = new HashSet<string>();
+        foreach (var token in words[11].Split(','))
+        {
+            // if (token != "000")
+            {
+                tags.Add(token);
+            }
+        }
+        if (!string.IsNullOrEmpty(words[12]) && words[12] != "null")
+        {
+            if (words[12].Contains("-"))
+            {
+                create_at = DateTime.Parse(words[12]);
+            }
+            else
+            {
+                create_at = Common.ParseTime(double.Parse(words[12]));
+            }
+        }
+        else
+        {
+            create_at = DateTime.Parse("2017-01-01");
+        }
+    }
+}
+
+public class Common
+{
+    public static DateTime ParseTime(double ticks)
+    {
+        DateTime unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, 0);
+        DateTime d3 = unixEpoch.AddSeconds(ticks); //jsSeconds
+        return d3;
+    }
+
+    public static Dictionary<string, float> LoadDict(string infile, int keyIdx, int valueIdx)
+    {
+        Dictionary<string, float> result = new Dictionary<string, float>();
+        using (StreamReader rd = new StreamReader(infile))
+        {
+            string content = null;
+            while ((content = rd.ReadLine()) != null)
+            {
+                string[] words = content.Split(',');
+                if (!string.IsNullOrEmpty(words[valueIdx]))
+                    result.Add(words[keyIdx], float.Parse(words[valueIdx]));
+            }
+        }
+        return result;
+    }
+}
+#ENDCS
