@@ -1,0 +1,550 @@
+﻿//Script GUID:ecd83686-8506-40c3-bc1c-85566fe24fca
+//Used for tracking history
+
+//  shares/CML.TLC/TLC/TLC_3.6.65.0/
+
+//pred_out_ft = EXTRACT comment:string, 
+//label:int, 
+//score:float, 
+//prob:float 
+//    FROM "local/users/v-lianji/RecSys2017/pipeline/latest/localresults/recsys17-pred-highdim-middle.tsv" 
+//    USING DefaultTextExtractor(delimiter:'\t');
+//
+//
+//pred_out_lr = EXTRACT comment:string, 
+//label:int, 
+//score:float, 
+//prob:float 
+//    FROM "local/users/v-lianji/RecSys2017/pipeline/latest/localresults/recsys17-pred-highdim-LR.tsv" 
+//    USING DefaultTextExtractor(delimiter:'\t');
+//
+//pred_out = SELECT a .comment, a .label, a .score, a .prob*0.7+a .prob*0.3 AS prob 
+//    FROM pred_out_ft AS a 
+//         INNER JOIN pred_out_lr AS b 
+//         ON a .comment == b .comment;
+
+//// for cosmos09 TLC3.7
+#IF(EXISTS("local/users/v-lianji/TLC3.7/Tlc3Scope.module"))
+MODULE "local/users/v-lianji/TLC3.7/Tlc3Scope.module" AS Tlc3Learner;
+RESOURCE @"local/users/v-lianji/TLC3.7/Microsoft.MachineLearning.Garage.dll";
+#ELSE
+ /// cosmos14
+MODULE "/shares/CML.TLC/TLC/TLC-3.7.162.86/Tlc3Scope.module" AS Tlc3Learner;
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/Microsoft.MachineLearning.Garage.dll";
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/libxgboost.dll";
+RESOURCE @"/shares/CML.TLC/TLC/TLC-3.7.162.86/Microsoft.MachineLearning.XGBoost.dll";  
+#ENDIF
+
+
+
+#DECLARE inpath string =  "local/users/v-lianji/camera_ready/train-val-online/results/FT_p20_trainonly_valid_filtercommon.predictions.tsv"; // "local/users/v-lianji/camera_ready/train-val-online/results/"+@@name@@+"_valid.predictions.tsv";
+#DECLARE outpath string =  "local/users/v-lianji/camera_ready/train-val-online/results/FT_p20_trainonly_valid_filtercommon_valid.predictions.ss";
+#DECLARE metricspath string =  "local/users/v-lianji/camera_ready/train-val-online/results/FT_p20_trainonly_valid_filtercommon_valid.metrics.ss";
+
+pred_out =
+    EXTRACT comment : string,
+            label : int,
+            score : float,
+            prob : float
+    FROM @inpath
+    USING DefaultTextExtractor(delimiter: '\t'); 
+
+
+scoredTest =
+    SELECT prob AS Probability,
+           prob AS Score,
+           label*1.0f AS Label
+    FROM pred_out;
+metrics =
+    REDUCE scoredTest ALL
+    USING TlcEvaluatingReducer(
+        // The binary evaluator is being used, 
+        // and the score and probability columns are specified.
+        "eval=bin{prob=Probability score=Score}",
+        // The label column.
+        "lab=Label");
+OUTPUT metrics
+TO SSTREAM @metricspath ;
+
+
+data = SELECT MyHelper.GetUserId(comment) AS uid, 
+              MyHelper.GetItemId(comment) AS iid,
+              prob, 
+              label 
+    FROM pred_out;
+
+
+select_users = SELECT uid, MAX(label) AS label 
+    FROM data
+    GROUP BY uid 
+    HAVING label==1;
+
+//
+//select_users = SELECT uid, COUNTIF(label>0) AS pos_cnt
+//    FROM data
+//    GROUP BY uid 
+//    HAVING pos_cnt>=5;
+
+
+data = SELECT a .* FROM data AS a 
+                        INNER JOIN select_users AS b 
+                        ON  a .uid == b .uid;
+
+
+user_top = 
+REDUCE data 
+ON uid 
+USING TopKSelectorUserSide("1");
+
+user_top =
+SELECT COUNT(*) AS cnt, COUNTIF(Label>0) AS hitcnt
+                     FROM user_top; 
+res01 = 
+SELECT  1 AS id, cnt,  hitcnt, hitcnt*1.0/cnt AS ratio
+                     FROM user_top;
+//OUTPUT TO SSTREAM "local/users/v-lianji/RecSys2017/pipeline/latest/localresults/post_stat/LR_top-1.ss" ;
+
+
+user_top = 
+REDUCE data 
+ON uid 
+USING TopKSelectorUserSide("2");
+
+user_top =
+SELECT UserId,  MAX(Label) AS Label
+                     FROM user_top; 
+user_top =
+SELECT COUNT(*) AS cnt, COUNTIF(Label>0) AS hitcnt
+                     FROM user_top; 
+res02 = 
+SELECT  2 AS id, cnt,  hitcnt, hitcnt*1.0/cnt AS ratio
+                     FROM user_top;
+//OUTPUT TO SSTREAM "local/users/v-lianji/RecSys2017/pipeline/latest/localresults/post_stat/LR_top-2.ss" ;
+
+
+user_top = 
+REDUCE data 
+ON uid 
+USING TopKSelectorUserSide("3");
+
+user_top =
+SELECT UserId,  MAX(Label) AS Label
+                     FROM user_top; 
+user_top =
+SELECT COUNT(*) AS cnt, COUNTIF(Label>0) AS hitcnt
+                     FROM user_top; 
+res03 = 
+SELECT  3 AS id, cnt,  hitcnt, hitcnt*1.0/cnt AS ratio
+                     FROM user_top;
+//OUTPUT TO SSTREAM "local/users/v-lianji/RecSys2017/pipeline/latest/localresults/post_stat/LR_top-3.ss" ;
+
+
+
+user_top = 
+REDUCE data 
+ON uid 
+USING TopKSelectorUserSide("4");
+user_top =
+SELECT UserId,  MAX(Label) AS Label
+                     FROM user_top; 
+user_top =
+SELECT COUNT(*) AS cnt, COUNTIF(Label>0) AS hitcnt
+                     FROM user_top; 
+res04 =   
+SELECT  4 AS id, cnt,  hitcnt, hitcnt*1.0/cnt AS ratio
+                     FROM user_top;
+//OUTPUT TO SSTREAM "local/users/v-lianji/RecSys2017/pipeline/latest/localresults/post_stat/LR_top-4.ss" ;
+
+
+
+user_top = 
+REDUCE data 
+ON uid 
+USING TopKSelectorUserSide("5");
+user_top =
+SELECT UserId,  MAX(Label) AS Label
+                     FROM user_top; 
+user_top =
+SELECT COUNT(*) AS cnt, COUNTIF(Label>0) AS hitcnt
+                     FROM user_top; 
+res05 = 
+SELECT  5 AS id, cnt,  hitcnt, hitcnt*1.0/cnt AS ratio
+                     FROM user_top;
+//OUTPUT TO SSTREAM "local/users/v-lianji/RecSys2017/pipeline/latest/localresults/post_stat/LR_top-5.ss" ;
+
+res = SELECT * FROM res01 
+    UNION ALL 
+    SELECT * FROM res02 
+                   UNION ALL 
+    SELECT * FROM res03 
+                   UNION ALL 
+    SELECT * FROM res04 
+                   UNION ALL 
+    SELECT * FROM res05 ;
+OUTPUT res   TO SSTREAM @outpath ;
+
+
+//////////////////////////////////////////////////////
+ 
+ #CS
+ using Microsoft.SCOPE.Types;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using ScopeRuntime;
+
+public static class MyHelper
+{
+    public static string GetUserId(string str)
+    {
+        int idx = str.IndexOf(",");
+        return str.Substring(0, idx);
+    }
+
+    public static string GetItemId(string str)
+    {
+        int idx = str.IndexOf(",");
+        return str.Substring(idx + 1);
+    }
+
+
+    public static string GetUserIdFromLast(string str)
+    {
+        int idx = str.IndexOf("#");
+        return str.Substring(idx + 1).Split(',')[0];
+    }
+}
+
+
+
+public class SubmissionFormater : Reducer
+{
+    public override Schema Produces(string[] requestedColumns, string[] args, Schema input)
+    {
+        ScopeRuntime.Diagnostics.DebugStream.WriteLine("requestdColumns: {0}", string.Join(",", requestedColumns));
+        return new Schema(
+            "ItemId:string,TopUserId:string"
+            );
+    }
+
+    public override IEnumerable<Row> Reduce(RowSet input, Row outputRow, string[] args)
+    {
+        int topk = 250;
+
+        string iid = "";
+
+        List<Tuple<string, float>> uid_score_list = new List<Tuple<string, float>>();
+
+
+        foreach (Row row in input.Rows)
+        {
+            iid = row[1].String;
+
+            string uid = row[0].String;
+
+            float score = row[2].Float;
+
+            uid_score_list.Add(new Tuple<string, float>(uid, score));
+        }
+
+        uid_score_list.Sort((a, b) => b.Item2.CompareTo(a.Item2));
+        int k = Math.Min(topk, uid_score_list.Count);
+
+        string value = "";
+        for (int i = 0; i < k; i++)
+        {
+            value += "," + uid_score_list[i].Item1;
+        }
+
+        if (value.Length > 0)
+        {
+            outputRow[0].Set(iid);
+            outputRow[1].Set(value.Substring(1));
+        }
+        else
+        {
+            outputRow[0].Set(iid);
+            outputRow[1].Set("");
+        }
+
+        yield return outputRow;
+
+    }
+}
+
+
+
+
+public class OnlineSubmissionFormater : Reducer
+{
+    public override Schema Produces(string[] requestedColumns, string[] args, Schema input)
+    {
+        ScopeRuntime.Diagnostics.DebugStream.WriteLine("requestdColumns: {0}", string.Join(",", requestedColumns));
+        return new Schema(
+            "ItemId:string,TopUserId:string"
+            );
+    }
+
+    public override IEnumerable<Row> Reduce(RowSet input, Row outputRow, string[] args)
+    {
+        int topk = 250;
+
+        string iid = "";
+        string uid = "";
+        float score = 0;
+
+        List<Tuple<string, string, float>> score_list = new List<Tuple<string, string, float>>();
+
+
+        foreach (Row row in input.Rows)
+        {
+            iid = row[1].String;
+
+            uid = row[0].String;
+
+            score = row[2].Float;
+
+            score_list.Add(new Tuple<string, string, float>(uid, iid, score));
+        }
+
+        score_list.Sort((a, b) => b.Item3.CompareTo(a.Item3));
+
+        Dictionary<string, List<string>> iid2uids = new Dictionary<string, List<string>>();
+        HashSet<string> visited_uids = new HashSet<string>();
+        foreach (var tuple in score_list)
+        {
+            uid = tuple.Item1;
+            iid = tuple.Item2;
+            if (!visited_uids.Contains(uid))
+            {
+                if (!iid2uids.ContainsKey(iid))
+                {
+                    iid2uids.Add(iid, new List<string>());
+                }
+                if (iid2uids[iid].Count < topk)
+                {
+                    iid2uids[iid].Add(uid);
+                    visited_uids.Add(uid);
+                }
+            }
+        }
+
+
+        foreach (var pair in iid2uids)
+        {
+            outputRow[0].Set(pair.Key);
+            string res = "";
+            foreach (var tuid in pair.Value)
+            {
+                res += "," + tuid;
+            }
+            if (res.Length <= 0)
+            {
+                res = ", ";
+            }
+            outputRow[1].Set(res.Substring(1));
+            yield return outputRow;
+        }
+
+    }
+}
+
+
+public class TopKSelector : Reducer
+{
+    public override Schema Produces(string[] requestedColumns, string[] args, Schema input)
+    {
+        ScopeRuntime.Diagnostics.DebugStream.WriteLine("requestdColumns: {0}", string.Join(",", requestedColumns));
+        return new Schema(
+            "UserId:string,ItemId:string,Probability:float,holder:string"
+            );
+    }
+
+    public override IEnumerable<Row> Reduce(RowSet input, Row outputRow, string[] args)
+    {
+        int topk = 1000;
+
+        string iid = "";
+
+        List<Tuple<string, float>> uid_score_list = new List<Tuple<string, float>>();
+
+
+        foreach (Row row in input.Rows)
+        {
+            iid = row[1].String;
+
+            string uid = row[0].String;
+
+            float score = row[2].Float;
+
+            uid_score_list.Add(new Tuple<string, float>(uid, score));
+        }
+
+        uid_score_list.Sort((a, b) => b.Item2.CompareTo(a.Item2));
+        int k = Math.Min(topk, uid_score_list.Count);
+
+
+        for (int i = 0; i < k; i++)
+        {
+            outputRow[0].Set(uid_score_list[i].Item1);
+            outputRow[1].Set(iid);
+            outputRow[2].Set(uid_score_list[i].Item2);
+            outputRow[3].Set("1");
+            yield return outputRow;
+        }
+
+    }
+}
+
+public class TopKSelectorUserSide : Reducer
+{
+    public override Schema Produces(string[] requestedColumns, string[] args, Schema input)
+    {
+        ScopeRuntime.Diagnostics.DebugStream.WriteLine("requestdColumns: {0}", string.Join(",", requestedColumns));
+        return new Schema(
+            "UserId:string,ItemId:string,Probability:float,Label:int"
+            );
+    }
+
+    public override IEnumerable<Row> Reduce(RowSet input, Row outputRow, string[] args)
+    {
+        int topk = int.Parse(args[0]);
+
+        string uid = "";
+
+        List<Tuple<string, float, int>> iid_score_list = new List<Tuple<string, float, int>>();
+
+
+        foreach (Row row in input.Rows)
+        {
+            uid = row[0].String;
+
+            string iid = row[1].String;
+
+            float score = row[2].Float;
+
+            int label = row[3].Integer;
+
+            iid_score_list.Add(new Tuple<string, float,int>(iid, score,label));
+        }
+
+        iid_score_list.Sort((a, b) => b.Item2.CompareTo(a.Item2));
+        int k = Math.Min(topk, iid_score_list.Count);
+
+
+        for (int i = 0; i < k; i++)
+        {
+            outputRow[1].Set(iid_score_list[i].Item1);
+            outputRow[0].Set(uid);
+            outputRow[2].Set(iid_score_list[i].Item2);
+            outputRow[3].Set(iid_score_list[i].Item3);
+            yield return outputRow;
+        }
+
+    }
+}
+
+
+public class UserTopSecondSelector : Reducer
+{
+    public override Schema Produces(string[] requestedColumns, string[] args, Schema input)
+    {
+        ScopeRuntime.Diagnostics.DebugStream.WriteLine("requestdColumns: {0}", string.Join(",", requestedColumns));
+        return new Schema(
+            "uid:string,iid:string,Probability:float,Place:int"
+            );
+    }
+
+    public override IEnumerable<Row> Reduce(RowSet input, Row outputRow, string[] args)
+    {
+        int topk = int.Parse(args[0]);
+
+        string uid = "";
+
+        List<Tuple<string, float>> iid_score_list = new List<Tuple<string, float>>();
+
+
+        foreach (Row row in input.Rows)
+        {
+            uid = row[0].String;
+
+            string iid = row[1].String;
+
+            float score = row[2].Float;
+
+            iid_score_list.Add(new Tuple<string, float>(iid, score));
+        }
+
+        if (iid_score_list.Count < 1)
+        {
+            outputRow[0].Set("");
+            outputRow[1].Set("");
+            outputRow[2].Set(0);
+            yield return outputRow;
+        }
+        else
+        {
+            iid_score_list.Sort((a, b) => b.Item2.CompareTo(a.Item2));
+            for (int i = 0; i < topk; i++)
+            {
+                outputRow[0].Set(uid);
+                outputRow[1].Set(iid_score_list[i].Item1);
+                outputRow[2].Set(iid_score_list[i].Item2);
+                outputRow[3].Set((i + 1).ToString());
+                yield return outputRow;
+            }
+
+        }
+
+    }
+}
+
+
+public class ShuffleLinesReducer : Reducer
+{
+    public override Schema Produces(string[] requestedColumns, string[] args, Schema input)
+    {
+        ScopeRuntime.Diagnostics.DebugStream.WriteLine("requestdColumns: {0}", string.Join(",", requestedColumns));
+        return new Schema(
+            "Line:string"
+            );
+    }
+
+    public override IEnumerable<Row> Reduce(RowSet input, Row outputRow, string[] args)
+    {
+        List<string> lines = new List<string>();
+
+
+        foreach (Row row in input.Rows)
+        {
+            lines.Add(row[1].String);
+        }
+        string[] array = lines.ToArray();
+
+        int n = array.Length;
+        Random rng = new Random();
+
+        while (n > 1)
+        {
+            int k = rng.Next(n--);
+            string tmp = array[n];
+            array[n] = array[k];
+            array[k] = tmp;
+        }
+
+        n = array.Length;
+        if (n > 0)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                outputRow[0].Set(array[i]);
+                yield return outputRow;
+            }
+        }
+
+    }
+}
+    
+     
+     #ENDCS

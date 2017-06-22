@@ -1,0 +1,80 @@
+﻿
+
+
+///////////////////////  ensemble //////////////////////////////
+stage1_preds =
+    EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"my/RecSys2017/pipeline/LR/results/LR-test_complete_0_highdim.predictions.tsv"
+    USING DefaultTextExtractor(delimiter: '\t');
+stage1_preds =
+    SELECT MyHelper.GetUserId(InstanceIndex) AS uid,
+           MyHelper.GetItemId(InstanceIndex) AS iid,
+           Probability
+    FROM stage1_preds
+    WHERE Probability > 0.2;
+
+//
+//stage1_preds =
+//REDUCE stage1_preds
+//ON uid
+//USING TopInstanceSelection();
+//
+
+stage2_preds =
+    EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/RecSys2017/big_candidates/goodmodels/results/FT-bigneg0.5-300-300-p30.predictions.tsv"
+    USING DefaultTextExtractor(delimiter: '\t');
+stage2_preds =
+    SELECT MyHelper.GetUserId(InstanceIndex) AS uid,
+           MyHelper.GetItemId(InstanceIndex) AS iid,
+           Probability;
+
+ensemble_predictions =
+    SELECT a.uid,
+           a.iid,
+           a.Probability
+    FROM stage2_preds AS a
+         INNER JOIN
+             stage1_preds AS b
+         ON a.uid == b.uid AND a.iid == b.iid;
+//
+//
+//ensemble_predictions =
+//    SELECT a.uid,
+//           a.iid,
+//           a.Probability  AS Probability
+//    FROM stage2_preds AS b
+//         INNER JOIN
+//             stage1_preds AS a
+//         ON a.uid == b.uid AND a.iid == b.iid;
+//
+
+
+REDUCE ensemble_predictions
+ON iid
+USING SubmissionFormater();
+  
+OUTPUT
+TO    @"my/RecSys2017/pipeline/LR/results/ensemble/FT-p10-T300-L300-0.5-submit-v0.tsv"
+USING DefaultTextOutputter(delimiter: '\t');
+ 
+ 
+////// since each user can receive at most one recommendation
+tpreds =
+    REDUCE ensemble_predictions
+    ON iid
+    USING TopKSelector();
+
+REDUCE tpreds
+ON holder
+USING OnlineSubmissionFormater(); 
+ 
+OUTPUT
+TO   @"my/RecSys2017/pipeline/LR/results/ensemble/FT-p10-T300-L300-0.5-submit.tsv"
+USING DefaultTextOutputter(delimiter: '\t');

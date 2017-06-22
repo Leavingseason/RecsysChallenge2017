@@ -1,0 +1,472 @@
+﻿
+
+lr_data00 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.00.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+          
+lr_data01 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.01.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+
+lr_data02 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.02.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data03 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.03.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data04 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.04.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data05 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.05.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data06 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.06.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data07 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.07.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data08 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.08.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data09 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-400-p50_offline/FT.predictions.09.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+
+ft_offline_data =  SELECT *
+    FROM lr_data00
+    UNION ALL
+    SELECT *
+    FROM lr_data01
+    UNION ALL
+    SELECT *
+    FROM lr_data02
+    UNION ALL
+    SELECT *
+    FROM lr_data03
+    UNION ALL
+    SELECT *
+    FROM lr_data04
+    UNION ALL
+    SELECT *
+    FROM lr_data05
+    UNION ALL
+    SELECT *
+    FROM lr_data06
+    UNION ALL
+    SELECT *
+    FROM lr_data07
+    UNION ALL
+    SELECT *
+    FROM lr_data08
+    UNION ALL
+    SELECT *
+    FROM lr_data09;
+
+
+
+ft_data00 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.00.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+          
+ft_data01 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.01.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+
+ft_data02 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.02.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+ft_data03 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.03.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+ft_data04 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.04.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+ft_data05 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.05.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+ft_data06 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.06.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+ft_data07 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.07.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+ft_data08 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.08.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+ft_data09 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/results/FT-L300_T400_online/FT.predictions.09.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+
+ft_online_data =  SELECT *
+    FROM ft_data00
+    UNION ALL
+    SELECT *
+    FROM ft_data01
+    UNION ALL
+    SELECT *
+    FROM ft_data02
+    UNION ALL
+    SELECT *
+    FROM ft_data03
+    UNION ALL
+    SELECT *
+    FROM ft_data04
+    UNION ALL
+    SELECT *
+    FROM ft_data05
+    UNION ALL
+    SELECT *
+    FROM ft_data06
+    UNION ALL
+    SELECT *
+    FROM ft_data07
+    UNION ALL
+    SELECT *
+    FROM ft_data08
+    UNION ALL
+    SELECT *
+    FROM ft_data09;
+
+
+lr_data00 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_0.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+          
+lr_data01 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_1.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+
+lr_data02 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_2.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data03 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_3.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data04 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_4.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data05 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_5.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data06 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_6.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data07 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_7.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data08 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_8.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+lr_data09 =   
+             EXTRACT InstanceIndex : string,
+            label : string,
+            output : float,
+            Probability : float
+    FROM @"local/users/v-lianji/camera_ready/has_latlng/results/FT.predictions_9.tsv"
+    USING DefaultTextExtractor(delimiter: '\t'); 
+
+lr_data =  SELECT *
+    FROM lr_data00
+    UNION ALL
+    SELECT *
+    FROM lr_data01
+    UNION ALL
+    SELECT *
+    FROM lr_data02
+    UNION ALL
+    SELECT *
+    FROM lr_data03
+    UNION ALL
+    SELECT *
+    FROM lr_data04
+    UNION ALL
+    SELECT *
+    FROM lr_data05
+    UNION ALL
+    SELECT *
+    FROM lr_data06
+    UNION ALL
+    SELECT *
+    FROM lr_data07
+    UNION ALL
+    SELECT *
+    FROM lr_data08
+    UNION ALL
+    SELECT *
+    FROM lr_data09;
+
+
+///////////////////////  ensemble //////////////////////////////
+//best_predictions =
+//    EXTRACT InstanceIndex : string,
+//            label : string,
+//            output : float,
+//            Probability : float
+//    FROM @"my/RecSys2017/pipeline/offline/results/recsys17-FT-p50.tsv"
+//    USING DefaultTextExtractor(delimiter: '\t'); 
+// best_predictions =
+//    SELECT MyHelper.GetUserId(InstanceIndex) AS uid,
+//           MyHelper.GetItemId(InstanceIndex) AS iid,
+//           Probability
+//    FROM best_predictions;
+
+//
+//lr_top_predictions =
+//REDUCE lr_predictions
+//ON iid
+//USING TopInstanceSelection();
+//
+//
+//subfeature02_predictions =
+//    EXTRACT InstanceIndex : string,
+//            label : string,
+//            output : float,
+//            Probability : float
+//    FROM @"local/users/v-lianji/RecSys2017/subfeature/results/FT_L300_T300_feature02-test_complete_0_highdim.predictions.tsv"
+//    USING DefaultTextExtractor(delimiter: '\t'); 
+// subfeature02_predictions =
+//    SELECT MyHelper.GetUserId(InstanceIndex) AS uid,
+//           MyHelper.GetItemId(InstanceIndex) AS iid,
+//           Probability
+//    FROM subfeature02_predictions;
+//
+//
+//param_FT100_predictions =
+//    EXTRACT InstanceIndex : string,
+//            label : string,
+//            output : float,
+//            Probability : float
+//    FROM @"local/users/v-lianji/RecSys2017/subparams/results/FT_L100_T100-test_complete_0_highdim.predictions.tsv"
+//    USING DefaultTextExtractor(delimiter: '\t'); 
+// param_FT100_predictions =
+//    SELECT MyHelper.GetUserId(InstanceIndex) AS uid,
+//           MyHelper.GetItemId(InstanceIndex) AS iid,
+//           Probability
+//    FROM param_FT100_predictions;
+//
+//
+//
+//param_FF0_7_predictions =
+//    EXTRACT InstanceIndex : string,
+//            label : string,
+//            output : float,
+//            Probability : float
+//    FROM @"local/users/v-lianji/RecSys2017/subparams/results/FT_L300_T300_ff0.5-test_complete_0_highdim.predictions.tsv"
+//    USING DefaultTextExtractor(delimiter: '\t'); 
+// param_FF0_7_predictions =
+//    SELECT MyHelper.GetUserId(InstanceIndex) AS uid,
+//           MyHelper.GetItemId(InstanceIndex) AS iid,
+//           Probability
+//    FROM param_FF0_7_predictions;
+//
+//
+
+
+//
+//ensemble_predictions =
+//    SELECT a.uid,
+//           a.iid,
+//           a.Probability  AS Probability
+//    FROM ft_predictions AS a
+//         INNER JOIN
+//             lr_top_predictions AS b
+//         ON a.uid == b.uid AND a.iid == b.iid;
+//
+//
+//REDUCE ensemble_predictions
+//ON iid
+//USING SubmissionFormater();
+//
+//OUTPUT
+//TO "my/RecSys2017/pipeline/results/ensemble-prediction-lr5000_submit.txt"
+//USING DefaultTextOutputter(delimiter: '\t');
+///////////////////////////////////////////
+
+#DECLARE path string = "local/users/v-lianji/offline/";   
+#DECLARE path_users_noheader string = @path + "users_noheader.csv";
+
+RESOURCE @path_users_noheader;
+//
+//preds =
+//    SELECT a.InstanceIndex,
+//           a.Probability * 0.0 + b.Probability * 0.0 + c.Probability * 0.8 AS Probability
+//    FROM ft_offline_data AS a
+//         INNER JOIN
+//             ft_online_data AS b
+//         ON a.InstanceIndex == b.InstanceIndex
+//         INNER JOIN
+//             lr_data AS c
+//         ON a.InstanceIndex == c.InstanceIndex
+//    WHERE a.Probability > 0.05 AND b.Probability > 0.05;
+
+ preds =
+    SELECT MyHelper.GetUserId(InstanceIndex) AS uid,
+           MyHelper.GetItemId(InstanceIndex) AS iid,
+           Probability
+    FROM lr_data;
+
+
+    SELECT uid,
+           iid,
+           MyHelper.PromotePremiumUsers(uid, Probability, 0.001) AS Probability
+    FROM preds; 
+REDUCE 
+ON iid
+USING SubmissionFormater();  
+OUTPUT
+TO  @"local/users/v-lianji/camera_ready/results/test-FT_FT_laglng_premium0.001_submit_complete.txt"
+USING DefaultTextOutputter(delimiter: '\t');
+ 
+ 
+  SELECT uid,
+           iid,
+           MyHelper.PromotePremiumUsers(uid, Probability, 0.002) AS Probability
+    FROM preds; 
+REDUCE 
+ON iid
+USING SubmissionFormater();  
+OUTPUT
+TO  @"local/users/v-lianji/camera_ready/results/test-FT_FT_laglng_premium0.002_submit_complete.txt"
+USING DefaultTextOutputter(delimiter: '\t');
+ 
+ 
+  SELECT uid,
+           iid,
+           MyHelper.PromotePremiumUsers(uid, Probability, 0.005) AS Probability
+    FROM preds; 
+REDUCE 
+ON iid
+USING SubmissionFormater(); 
+OUTPUT
+TO  @"local/users/v-lianji/camera_ready/results/test-FT_FT_laglng_premium0.005_submit_complete.txt"
+USING DefaultTextOutputter(delimiter: '\t');
+ 
+ 
+   SELECT uid,
+           iid,
+           MyHelper.PromotePremiumUsers(uid, Probability, 0.000) AS Probability
+    FROM preds; 
+REDUCE 
+ON iid
+USING SubmissionFormater(); 
+OUTPUT
+TO  @"local/users/v-lianji/camera_ready/results/test-FT_FT_laglng_premium0.000_submit_complete.txt"
+USING DefaultTextOutputter(delimiter: '\t');
+ 
