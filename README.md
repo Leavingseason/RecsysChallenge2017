@@ -8,5 +8,5 @@ The final features are in sparse format as SVMLight.
 
 Programs under folder 'auto-pipeline' are c# source code for our automatic pipeline.
 
-RecsysChallenge2017.pdf is our workshop paper. 
+RecsysChallenge2017.pdf is our workshop paper, "Practical Lessons for Job Recommendations in the Cold-Start Scenario".  
 
